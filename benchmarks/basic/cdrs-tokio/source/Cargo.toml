@@ -5,7 +5,7 @@ authors = []
 edition = "2018"
 
 [dependencies]
-cdrs-tokio = {git = "https://github.com/krojew/cdrs-tokio"}
+cdrs-tokio = {git = "https://github.com/krojew/cdrs-tokio", branch = "master"}
 tokio = { version = "1.1.0", features = ["full"] }
 getopts = "0.2.12"
 anyhow = "1.0.40"
