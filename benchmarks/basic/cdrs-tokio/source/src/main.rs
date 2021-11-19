@@ -1,13 +1,11 @@
 mod config;
 
 use anyhow::Result;
-use cdrs_tokio::authenticators::NoneAuthenticator;
-use cdrs_tokio::cluster::session::{new as new_session, Session as CdrsSession};
-use cdrs_tokio::cluster::{ClusterTcpConfig, ConnectionPool, NodeTcpConfigBuilder};
-use cdrs_tokio::load_balancing::RoundRobin;
+use cdrs_tokio::cluster::session::{Session as CdrsSession, SessionBuilder, TcpSessionBuilder};
+use cdrs_tokio::cluster::{NodeTcpConfigBuilder, TcpConnectionManager};
+use cdrs_tokio::load_balancing::RoundRobinLoadBalancingStrategy;
 use cdrs_tokio::query::*;
 use cdrs_tokio::query_values;
-use cdrs_tokio::retry::DefaultRetryPolicy;
 use cdrs_tokio::transport::TransportTcp;
 use cdrs_tokio::types::IntoRustByIndex;
 use config::{Config, Workload};
@@ -15,7 +13,11 @@ use std::convert::TryInto;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
-type Session = CdrsSession<RoundRobin<ConnectionPool<TransportTcp>>>;
+type Session = CdrsSession<
+    TransportTcp,
+    TcpConnectionManager,
+    RoundRobinLoadBalancingStrategy<TransportTcp, TcpConnectionManager>,
+>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,19 +30,22 @@ async fn main() -> Result<()> {
 
     println!("Benchmark configuration:\n{:#?}\n", config);
 
-    let mut nodes = Vec::new();
-    for addr in &config.node_addresses {
-        let node = NodeTcpConfigBuilder::new(&addr, Arc::new(NoneAuthenticator {})).build();
-        nodes.push(node);
-    }
+    let cluster_config = NodeTcpConfigBuilder::new()
+        .with_contact_point("127.0.0.1:9042".into())
+        .build()
+        .await
+        .unwrap();
 
-    let cluster_config = ClusterTcpConfig(nodes);
-    let session: Session = new_session(
-        &cluster_config,
-        RoundRobin::new(),
-        Box::new(DefaultRetryPolicy::default()),
-    )
-    .await?;
+    let session =
+        TcpSessionBuilder::new(RoundRobinLoadBalancingStrategy::new(), cluster_config).build();
+
+    // let cluster_config = ClusterTcpConfig(cluster_config);
+    // let session = new_session(
+    //     &cluster_config,
+    //     RoundRobinLoadBalancingStrategy::new(),
+    //     Box::new(DefaultRetryPolicy::default()),
+    // )
+    // .await?;
 
     let session = Arc::new(session);
 
@@ -105,10 +110,10 @@ async fn main() -> Result<()> {
                             .into_iter()
                             .next()
                             .unwrap();
-                        
+
                         let v1: i64 = first_row.get_by_index(0).unwrap().unwrap();
                         let v2: i64 = first_row.get_by_index(1).unwrap().unwrap();
-                        
+
                         assert_eq!((v1, v2), (2 * pk, 3 * pk));
                     }
                 }
@@ -145,7 +150,7 @@ async fn prepare_keyspace_and_table(session: &Session) -> Result<()> {
             "CREATE TABLE IF NOT EXISTS benchks.benchtab (pk bigint PRIMARY KEY, v1 bigint, v2 bigint)"
         )
         .await?;
-    
+
     tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
 
     Ok(())
