@@ -103,7 +103,7 @@ async fn main() -> Result<()> {
                             .exec_with_values(&prepared_select, query_values!(pk))
                             .await
                             .unwrap()
-                            .body()
+                            .response_body()
                             .unwrap()
                             .into_rows()
                             .unwrap()
